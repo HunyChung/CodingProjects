@@ -1,0 +1,5 @@
+route#, Start, distance, End/New Start
+80,Langdon,5,Observatory and Elm,4,University Bay at Lot60,3,Eagle Heights,6,Marsh,4,Observatory and Elm,6,Randall and Engineering,7,Langdon
+81,Langdon,7,Blair and Johnson,10, W Washington and Bedford,10,Langdon
+82,Langdon,8,Walnut and Observatory,8,Regent and Breese,8,Langdon
+84,Eagle Heights,3,Lake Mendota and Eagle Heights,5,Highland,4,Observatory and Easterday,4,Linden and Charter,1,Linden and Babcock,3,Observatory and Easterday,3,Highland,4,Eagle Heights
