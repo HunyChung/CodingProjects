@@ -1,0 +1,461 @@
+---
+title: "Differences in Likes and Dislikes for YouTube Videos Across Countries and Categories"
+author: "Mina Kim, Sanghun Chung, Sam Schoepke"
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+#knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo=TRUE,message=FALSE,warning=FALSE,cache=TRUE,autodep=TRUE,cache.comments=FALSE)
+xfun::session_info('rmarkdown')
+tinytex::tinytex_root()
+library(tidyverse)
+library(lubridate)
+library(readxl)
+library(scales)
+source("../scripts/viridis.R")
+source("../scripts/ggprob.R")
+```
+
+
+# Introduction
+
+Millions of people from all over the world interact with YouTube on a daily basis^[https://fortunelords.com/youtube-stats/#]. However, are the ways in which people engage with the video-streaming platform universal for people in different countries? Additionally, are there other factors that reveal a pattern in people's behaviors when they click, like, or dislike a video? To explore these questions further, we decided to observe how people from different countries react to trending videos by comparing the proportions of likes by country and region. Additionally, we study whether people across the globe like or dislike videos from different YouTube categories differently.
+
+We predict that different countries will have different numbers proportions of likes, perhaps due to cultural differences or exposure to different content on certain YouTubes for different countries. Likewise, we assume that videos of different categories will have different proportions of likes due to the more pronounced difference in content and audience.
+
+
+# Background
+
+### Source Data
+The information for this dataset was collected using the YouTube API by scraping data from YouTube’s top trending videos in a certain number of countries using Python^[Script for collection methods used can be found here: https://github.com/mitchelljy/Trending-YouTube-Scraper]. Data on top-trending videos were collected daily from December 1st, 2017 to May 31st, 2018. Of the 16 columns recorded in the dataset, the relevant variables we used in this study were:
+
+1. `trending_date`: When the video was first considered trending in YouTube
+2. `likes`: The total number of likes the trending video had at the time the observation was recorded
+3. `dislikes`: The total number of dislikes the trending video had at the time the observation was recorded
+4. `views`: The total number of views the trending video had at the time the observation was recorded
+5. `category_id`: The number representation of category for videos.
+
+We additionally created our own variables `country` and `region` that kept track of which country and continent the video was originally from in the aggregated dataframe.
+
+Because of the sheer number of data for each day of every country dataset, we decided to use information from the top-trending videos of the most recent Monday for each country for our analyses, which is May 28th, 2018 for all datasets. This is because we found that, based on all the datasets for each country, the number of likes and dislikes is close to average on Mondays. This is shown in the **Graphs** section of our report.
+
+Our data was sourced from Kaggle^[https://www.kaggle.com/datasnaek/youtube-new?select=USvideos.csv], an open-source website used for sharing and aggregating data for data analysis. For this project, we use datasets that gathered information from the US, Great Britain, Germany, Canada, France, Russia, Mexico, South Korea, Japan and India.
+
+#### Definition of a “trending” video
+We specifically use datasets of trending videos because they are readily available. However, the definition of a “trending video” on YouTube is based on a variety of factors such as but not limited to view count, the speed at which the video generates views, where views for a video are coming from (i.e. if a video is being shared outside of YouTube), the release date of a video, and more^[You can find more information on trending videos on YouTubes's support website: https://support.google.com/youtube/answer/7239739?hl=en]. The YouTube algorithm assesses these factors and decides based on these numbers what videos are on the trending page for a given day. Additionally, a video that reaches the trending page for a given country may not necessarily be featured in another region^[https://www.theverge.com/2019/5/29/18642833/youtube-trending-coffee-break-pewdiepie-late-night-sports-highlights]. Although view count is a factor in the algorithm, the range of views a trending video can have varies widely^[See citation #5].
+
+### Areas of Error
+For this data, we made the following assumptions:
+
+- The data we review is representative of any “trending” video on the specified country’s YouTube website. Because we’re studying the like/dislike patterns of viewers from different countries who watch top-trending videos, we assume that viewers’ habit of liking/disliking a video is the same regardless of whether or not a video is trending.
+- Each observation is independent of another. We assume that previous observations, i.e. likes or dislikes, does not affect the probability of someone liking or disliking a video. This assumption in real life is debatable.
+- Because the videos trending are not the same in all countries, certain videos that reach trending by gaining popularity through negative rating can lower a country’s overall rating. Additionally, certain videos that reach trending in one country can be censured in another. 
+- We do not count observations where a person neither liked nor disliked a video, i.e. if a video has 500 views with 300 likes and 50 dislikes, the total observations `n` in this case would be 350.
+
+For our analyses, we will compare the proportions of likes over the total number of likes and dislikes for each country, region, and video category using likelihood ratio tests.
+
+
+# Analysis
+
+```{r read files, cache=TRUE, include=FALSE}
+us <- read_excel("data/USvideos.xlsx") %>%
+  mutate(trending_date = ydm(trending_date), publish_time = ymd(publish_time))
+ru <- read_csv("data/RUvideos.csv") %>% 
+  mutate(trending_date = ydm(trending_date), publish_time = ymd(publish_time))
+mx <- read_csv("data/MXvideos.csv") %>% 
+  mutate(trending_date = ydm(trending_date), publish_time = ymd(publish_time))
+kr <- read_csv("data/KRvideos.csv") %>% 
+  mutate(trending_date = ydm(trending_date), publish_time = ymd(publish_time))
+jp <- read_csv("data/JPvideos.csv") %>% 
+  mutate(trending_date = ydm(trending_date), publish_time = ymd(publish_time))
+ind <- read_csv("data/INvideos.csv") %>% 
+  mutate(trending_date = ydm(trending_date), publish_time = ymd(publish_time))
+gb <- read_csv("data/GBvideos.csv") %>% 
+  mutate(trending_date = ydm(trending_date), publish_time = ymd(publish_time))
+fr <- read_csv("data/FRvideos.csv") %>% 
+  mutate(trending_date = ydm(trending_date), publish_time = ymd(publish_time))
+de <- read_csv("data/DEvideos.csv") %>% 
+  mutate(trending_date = ydm(trending_date), publish_time = ymd(publish_time))
+ca <- read_excel("data/CAvideos.xlsx") %>%
+  mutate(trending_date = ydm(trending_date), publish_time = ymd(publish_time))
+```
+
+
+## Graphs
+
+```{r filter for 5/31/18, echo=FALSE}
+datasets <- c("US","Russia","Mexico","South Korea","Japan","India","Great Britain","France","Germany","Canada")
+
+filter_datasets <- function(df, i){
+  return (df %>% 
+    filter(ratings_disabled == FALSE) %>% 
+      mutate(comments_disabled = format(as.character(comments_disabled))) %>%
+      mutate(ratings_disabled = format(as.character(ratings_disabled))) %>%
+      mutate(video_error_or_removed = format(as.character(video_error_or_removed))) %>%
+      mutate(country = datasets[i]))
+}
+
+us1 <- filter_datasets(us, 1)
+ru1 <- filter_datasets(ru, 2)
+mx1 <- filter_datasets(mx, 3)
+kr1 <- filter_datasets(kr, 4)
+jp1 <- filter_datasets(jp, 5)
+ind1 <- filter_datasets(ind, 6)
+gb1 <- filter_datasets(gb, 7)
+fr1 <- filter_datasets(fr, 8)
+de1 <- filter_datasets(de, 9)
+ca1 <- filter_datasets(ca, 10)
+
+
+
+# Combined dataset of countries for videos on 5/31/18
+all <- bind_rows(us1,ru1,mx1,kr1,jp1,ind1,gb1,fr1,de1,ca1)
+one_day <- all %>% 
+  filter(trending_date == ydm("18.28.5")) %>% 
+  mutate(region = case_when(
+    country %in% c("US", "Mexico", "Canada") ~ "Americas",
+    country %in% c("Russia","Great Britain","France","Germany") ~ "Europe",
+    country %in% c("South Korea", "Japan", "India") ~ "Asia"
+  )) %>% 
+  select(country, region, trending_date, title, channel_title, views, likes, dislikes, comments_disabled, category_id)
+
+rm(us1,ru1,mx1,kr1,jp1,ind1,gb1,fr1,de1,ca1)
+```
+
+First, we will see if the number of likes/dislikes change based on the day of the week.
+
+```{r Day of week, echo=FALSE}
+day_of_week <- all %>% 
+  mutate(wday = wday(trending_date, label=TRUE)) %>% 
+  group_by(wday) %>% 
+  summarize(likes = sum(likes),
+            dislikes = sum(dislikes))
+
+days_means <- day_of_week %>% 
+  summarize(mu_likes = mean(likes),
+            mu_dislikes = mean(dislikes))
+
+day_of_week %>% 
+  pivot_longer(cols = c(likes, dislikes), names_to = "case") %>% 
+  ggplot(aes(x=wday, y=value, fill=case)) +
+  geom_col(position=position_dodge2(preserve = "single")) +
+  geom_hline(yintercept = days_means$mu_likes, linetype="dashed", color="blue") +
+  geom_hline(yintercept = days_means$mu_dislikes, linetype="dashed", color="red") +
+  scale_y_continuous(labels=label_comma()) +
+  xlab("Weekday") +
+  ylab("Number of Likes/Dislikes") +
+  ggtitle("Distribution of Likes & Dislikes for All Videos Based on Weekday")
+```
+
+From this graph, we observe that there are more likes on the weekend than there are on weekdays. It seems Mondays have an average number of likes and dislikes an a given basis, so for our analysis we will review videos that were on the trending page on the most recent Monday in the data, which was 5/28/18.
+
+The graphs below are frequency charts displaying the count of videos with likes and dislikes within intervals scaling by $log_{10}$ faceted by country.
+
+```{r Distribution of likes/dislikes/views, echo=FALSE}
+# Use full name and not abbreviation
+# Mutate in case_when()
+
+#turns off scientific notation
+options(scipen = 999)
+
+ggplot(one_day, aes(x = likes)) +
+  geom_histogram(color = 'black', fill = 'white') +
+  theme(text = element_text(size=10)) +
+  scale_x_continuous(name="Likes", trans = 'log10')+
+  ggtitle("Frequency Chart of Likes", subtitle="Based on trending videos on 5/31/18")+
+  facet_wrap(~country) +
+  ylab("Frequency (log10)")
+
+ggplot(one_day, aes(x = dislikes)) +
+  geom_histogram(color = 'black', fill = 'white') +
+  theme(text = element_text(size=10)) +
+  scale_x_continuous(name="Dislikes", trans = 'log10')+
+  ggtitle("Frequency Chart of Disikes", subtitle="Based on trending videos on 5/31/18")+
+  facet_wrap(~country) +
+  ylab("Frequency (log10)")
+
+one_dayCate <- one_day %>% 
+  mutate(category_id = case_when(
+    category_id == 1~ "Car", category_id == 2~ "Music",
+    category_id == 3~ "Animals", category_id == 4~ "Sports",
+    category_id == 5~ "Short Movies", category_id == 6~ "Travel&Events",
+    category_id == 7~ "Gaming", category_id == 8~ "Videoblogging",
+    category_id == 9~ "People&Blogs", category_id == 10~ "Comedy1",
+    category_id == 11~ "Entertainment", category_id == 12~ "News",
+    category_id == 13~ "Howto&Style", category_id == 14~ "Education",
+    category_id == 15~ "Science", category_id == 16~ "Activism",
+    category_id == 17~ "Movies", category_id == 18~ "Animation",
+    category_id == 19~ "Action/Adventure", category_id == 20~ "Classics",
+    category_id == 21~ "Comedy2", category_id == 22~ "Documentary",
+    category_id == 23~ "Drama", category_id == 24~ "Family",
+    category_id == 25~ "Foreign", category_id == 26~ "Horror",
+    category_id == 27~ "Sci-Fi", category_id == 28~ "Thriller",
+    category_id == 29~ "Shorts", category_id == 30~ "Shows",
+    category_id == 31~ "Trailers", category_id == 0~ "Film"
+    
+    ))
+
+# Color by category
+#one_dayCate %>% 
+#  group_by(category_id) %>% 
+#  summarize(likes = sum(likes),
+#            dislikes = sum(dislikes),
+#            n = likes+dislikes,
+#            p_hat = likes/n) %>% 
+#  ggplot(aes(x=category_id, y=p_hat, fill=category_id)) +
+#  geom_col() +
+#  xlab("categories") +
+#  ylab("Proportion of Likes to Dislikes") +
+#  ggtitle("Proportion of Likes to Dislikes for Each Category") +
+#  theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+The above visual shows that, for all countries, the distribution of likes is shifted further to the right of the distribution of dislikes. Additionally, there appears to be slight skewness for certain distributions, such as the frequency of likes for Japan or France and the frequency of dislikes for Russia.
+
+The next visualizations will help give a sense of which countries and regions have a lighter or lower proportions of likes-to-dislikes, if any. Below is a bar graph displaying the total number of likes and dislikes for each country's videos side-by-side, with total likes and dislikes divided by total views in thousands.
+
+```{r Ratio of likes/dislikes for countries 1, echo=FALSE}
+# Normalize based on number of views
+one_day %>% 
+  group_by(country) %>% 
+  summarize(views = sum(views)/1000,
+            likes = sum(likes)/views,
+            dislikes = sum(dislikes)/views) %>% #/views?
+  pivot_longer(cols = c(likes, dislikes), names_to = "case") %>% 
+  ggplot() +
+  geom_col(aes(reorder(country, -value), value, fill=case), position=position_dodge2(preserve = "single")) +
+  scale_y_continuous(labels=label_comma()) +
+  xlab("Country") +
+  ylab("Number of Likes/Dislikes per thousand Views") +
+  ggtitle("Likes & Dislikes on YouTube Videos for Each Country", subtitle="Normalized by Views (thousands)") +
+  theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+It seems that Russia and Japan have high numbers of likes when normalized with view counts. Meanwhile, countries like the US, India, and Great Britain have lower likes but comparatively similar numbers of dislikes when looking at all the countries.
+
+The following two graphs will help us gain a better sense of the proportion of likes by both pooling likes and dislikes based on country and when reviewing proportions individually.
+
+Below is a bar graph of the proportion of pooled likes and dislikes by country.
+
+```{r bar graph of proportions, echo=FALSE}
+# Color by region
+one_day %>% 
+  group_by(country,region) %>% 
+  summarize(likes = sum(likes),
+            dislikes = sum(dislikes),
+            n = likes+dislikes,
+            p_hat = likes/n) %>% 
+  #mutate(region = vector(region, levels=c("Americas", "Europe", "Asia"))) %>% 
+  mutate(order = case_when(
+    region == "Americas" ~ 1,
+    region == "Europe" ~ 2,
+    region == "Asia" ~ 3
+  )) %>% 
+  ggplot(aes(x=reorder(country, order), y=p_hat, fill=region)) +
+  geom_col() +
+  xlab("Country") +
+  ylab("Proportion of Likes to Dislikes") +
+  ggtitle("Proportion of Likes to Dislikes for Each Country") +
+  theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+We can see the proportions are all very high and very close to 1. Next, this boxplot distribution will help better represent the proportion of likes based on the median. Each dot represents the proportion of likes for a single video in the trending page of the specified country.
+
+```{r Ratio of likes/dislikes for countries 2, echo=FALSE}
+# Color based on region instead of country
+one_day %>%
+  select(country, region, likes, dislikes) %>%
+  mutate(prop = likes/(likes+dislikes)) %>%
+  mutate(order = case_when(
+    region == "Americas" ~ 1,
+    region == "Europe" ~ 2,
+    region == "Asia" ~ 3
+  )) %>% 
+  ggplot(aes(x=reorder(country, order), y=prop, color=region)) +
+  geom_boxplot() +
+  xlab("Country") +
+  ylab("Proportion of Likes to Dislikes") +
+  ggtitle("Boxplot of Proportion of Likes to Dislikes for Each Country", subtitle="Based on Individual Videos") +
+  theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+Based on the boxplot medians, it appears that the proportion of likes for videos differs for all countries. Some countries have more outliers than other, such as Great Britain, while others seem to have at least one video where the proportion is very low, such as Germany, South Korea, and Russia.
+
+Finally, we will display the ratio of likes per 1 dislike based on the video categories that appeared on the trending page on 5/28/18. We will use data pooled from all countries. Videos that did not fit under a specific category based on the video information were listed under "Other".
+
+```{r Category likes per dislike, echo=FALSE }
+category_stats <- one_dayCate %>% 
+  select(country, title, trending_date, category_id, views, likes, dislikes) %>%
+  group_by(title) %>% 
+  summarize(category_id, views = max(views), likes = max(likes), dislikes = max(dislikes)) %>% 
+  distinct() %>% 
+  ungroup() %>% 
+  group_by(category_id) %>% 
+  summarize(views = sum(views), 
+            likes = sum(likes), 
+            dislikes = sum(dislikes),
+            views_to_ratings = views / (likes + dislikes),
+            likes_to_dislikes = likes / dislikes
+            )
+
+category_stats %>%
+  mutate(category_id = case_when(
+    is.na(category_id) ~ "Other",
+    TRUE ~ category_id
+  )) %>%
+  ggplot(aes(x=reorder(category_id, -likes_to_dislikes), likes_to_dislikes)) +
+  geom_col(show.legend = FALSE) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+  xlab("Video Category") +
+  ylab("Likes per Dislike Ratio") +
+  ggtitle("Number of Likes per Dislike by Category")
+```
+
+We can see that there is a clear difference in likes for the video categories listed, with Sci-Fi having the highest likes per dislike ratio.
+
+
+## Proportions of Likes Based on Country
+
+We will now do a hypothesis test to see if the proportions of likes are the same for the countries in this study. Our hypotheses are:
+
+$$
+H_0: p_1 = ... = p_{10}\\
+H_a: \text{not }p_1 = ... = p_{10}
+$$
+where $p_1$ to $p_{10}$ are the proportions of likes for a country. The null hypothesis says all the true proportions are the same while the alternative states that at least one is different.
+
+Next, we calculate the LRT statistic $G$ using the given formula:
+
+$$
+G = 2(\text{ln}(L_1) - \text{ln}(L_0))
+$$
+
+$L_1$ and $L_0$ are the maximum log likelihood of the data assuming the null and alternative hypoethesis, respectively.
+
+
+```{r lrt, include=FALSE}
+lrt <- one_day %>% 
+  group_by(country) %>% 
+  summarize(likes = sum(likes),
+            dislikes = sum(dislikes),
+            n = likes+dislikes,
+            p_hat = likes/n) %>% 
+  ungroup() %>% 
+  mutate(p_0 = sum(likes)/(sum(likes) + sum(dislikes))) %>% 
+  mutate(L0 = dbinom(likes,n,p_0,log = TRUE),
+         L1 = dbinom(likes,n,p_hat,log = TRUE))
+lrt
+
+lrt <- lrt %>%
+  summarize(L0 = sum(L0),
+            L1 = sum(L1),
+            lrt = 2*(L1 - L0), # G
+            R = exp(L0-L1))
+lrt
+```
+
+Below is the p-value we get based on the likelihood ratio test statistic for our data.
+
+```{r chi-square graph, echo=FALSE}
+(pvalue <- 1 - pchisq(lrt$lrt, 9))
+```
+
+Because our test statistic is so large, the p-value is so small that R is unable to calculate a more precise number. Our p-value is less than 0.01, so we can reject our null hypothesis that the proportion of likes for trending YouTube videos are the same for each country. The results imply that there is evidence that the proportion of likes differ across countries.
+
+## Proportions of Likes Based on Region
+
+We reviewed whether not the proportions of likes differ across countries, but what if we grouped our data together to reduce our defined categories? Below is a likelihood ratio test for the proportion of likes between the Americas (US, Mexico, Canada), Europe (Russia, Great Britain, France, Germany), and Asia (South Korea, Japan, India), with each country's data grouped together according to their region. We follow the same process as we did before for the country proportions except this time we use fewer proportions. Our new hypotheses are as follows:
+
+$$
+H_0: p_1 = p_2 = p_{3}\\
+H_a: \text{not }p_1 = p_2 = p_{3}
+$$
+$p_1$,$p_2$, and $p_3$ each represent the proportion of likes for the Americas, Europe, and Asia, respectively.
+
+```{r lrt 1, include=FALSE}
+lrt1 <- one_day %>%
+  group_by(region) %>%
+  summarize(likes = sum(likes),
+            dislikes = sum(dislikes),
+            n = likes+dislikes,
+            p_hat = likes/n) %>%
+  ungroup() %>%
+  mutate(p_0 = sum(likes)/(sum(likes) + sum(dislikes))) %>%
+  mutate(L0 = dbinom(likes,n,p_0,log = TRUE),
+         L1 = dbinom(likes,n,p_hat,log = TRUE))
+lrt1
+
+lrt1 <- lrt1 %>%
+  summarize(L0 = sum(L0),
+            L1 = sum(L1),
+            lrt = 2*(L1 - L0), # G
+            R = exp(L0-L1))
+lrt1
+```
+
+Below is our p-value we get assuming the new null hypothesis.
+
+```{r chi-square graph 1, echo=FALSE}
+(pvalue <- 1 - pchisq(lrt1$lrt, 2))
+```
+
+Our p-value is again "0", which is still less than 0.01. Therefore, we reject the null hypothesis. There is evidence that the proportions of likes on trending YouTube videos are inconsistent across the Americas, Europe, and Asia. 
+
+## Proportions of Likes Based on Category
+
+
+```{r lrt 2, include=FALSE}
+lrt2 <- one_day %>% 
+  group_by(category_id) %>% 
+  summarize(likes = sum(likes),
+            dislikes = sum(dislikes),
+            n = likes+dislikes,
+            p_hat = likes/n) %>% 
+  ungroup() %>% 
+  mutate(p_0 = sum(likes)/(sum(likes) + sum(dislikes))) %>% 
+  mutate(L0 = dbinom(likes,n,p_0,log = TRUE),
+         L1 = dbinom(likes,n,p_hat,log = TRUE))
+lrt2 <- lrt2 %>%
+  summarize(L0 = sum(L0),
+            L1 = sum(L1),
+            lrt = 2*(L1 - L0), # G
+            R = exp(L0-L1))
+```
+
+Now, we will follow a similar likelihood ratio test to see if the proportions of likes is similar across video categories, with data pooled from all countries. Our hypotheses are as follows:
+
+$$
+H_0: p_1 = ... = p_{16}\\
+H_a: \text{not }p_1 = ... = p_{16}
+$$
+
+Each proportion $p_1$ to $p_{16}$ corresponds to the proportion of likes for one of the 16 video categories that appeared on the trending page on 5/28/18.
+
+Below is the p-value we get based on the likelihood ratio test statistic for our data.
+
+```{r chi-square graph 2, echo=FALSE}
+(pvalue <- 1 - pchisq(lrt$lrt, 31))
+```
+
+Because our p-value is less than 0.01, we can reject our null hypothesis that the proportion of likes for trending YouTube videos are the same for each category. The results imply that there is evidence that the proportion of likes differ across categories.
+
+
+# Discussion
+
+For our analysis, we utilized plots of proportions of likes on videos, frequency charts of likes and dislikes, and likelihood ratio tests to review our alternative hypothesis that different countries and different categories will have different proportions of likes due to the overall difference in audience and culture.
+
+Our likelihood ratio tests confirmed with its low p-value that there is evidence that at least one proportion of like is inconsistent with the proportions of likes for US, Great Britain, Germany, Canada, France, Russia, Mexico, South Korea, Japan and India, suggesting that the type of country the video was trending in plays a factor in the number of likes and dislikes, corroborating with our initial prediction.
+
+We then conducted the same test with increased sample sizes by grouping the data by regions instead of individual countries. Once again, the likelihood ratio test confirmed our findings by rejecting the null hypothesis of consistency across region, suggesting that location does play a factor in the proportion of likes on videos. 
+
+Lastly, as expected from the graphs, the likelihood ratio test suggested that 1 or more samples of the 16 categories that were found in the sample of that one day was inconsistent.
+
+Some shortcoming include the fact that we cannot extrapolate our results beyond the group of countries we reviewed and defined within this study; it could be that certain groups of countries or regions, based on how you define them, do have consistent proportions of likes on trending YouTube videos. Another shortcoming is the fact our study can only highlight active engagement with YouTube videos and not lack thereof; i.e., we did not take into account people who neither liked nor disliked a video when conducting our tests. Additionally, we only studied proportions of likes for video categories that appeared on the trending page on 5/28/18 and therefore cannot extrapolate our results to all video categories in general. Furthermore, our study can only describe how people from different countries engage with YouTube and not what type of content they watch. Finally, we can only characterize the patterns of people's engagement behaviors and can't say what causes these differences in the like proportions.
+
+Additional questions we could ask include whether the extent to which people view trending videos differs across countries. We could also test whether or not other factors, such as having the comments disabled, affects the amount of likes or dislikes a trending video receives. We could also ask questions regarding the different proportions of likes within regions, i.e. whether or not the proportions of likes are similar or different between countries in the Americas, Europe, or Asia. In order to reduce variability and confounding factors, we could also limit our study to videos that are available to all countries so as to ensure that viewers are reacting to, i.e. liking or disliking, the same video. In our study, we used data from a single day to answer our question concerning the proportions of likes in trending videos across countries. However, we could also have randomly sampled observations from our dataset in order to review video data from a wider time frame. Instead of using a likelihood ratio test, we could also have used a binomial model to measure the difference in sample proportions for each pair of countries. Although this method is more cumbersome, it could also provide more insight into which countries have either higher, lower, or the same proportion of likes on trending YouTube videos when compared to each other. Finally, a future study could potentially collect data on the number of subscribers for a video's channel or use more recent data in order to improve our understanding.
+
+Overall, based on our Likelihood Ratio tests, we conclude that patterns of liking and/or disliking a trending YouTube video is not the same for viewers in the US, Great Britain, Germany, Canada, France, Russia, Mexico, South Korea, Japan and India and for viewers in the Americas, Europe, and Asia. Additionally, we conclude that the proportion of likes are not all the same for videos from the different YouTube categories reviewed in this study.
+
+## References
